@@ -17,6 +17,9 @@
 
 """Utility functions used across Superset"""
 
+import sys
+import struct
+import socket
 import logging
 import time
 import urllib.request
@@ -57,23 +60,34 @@ PAGE_RENDER_WAIT = 30
 
 # Get current datetime
 # https://stackoverflow.com/questions/36500197/python-get-time-from-ntp-server
-import socket
-import struct
-import sys
+
 
 def RequestTimefromNtp(addr=config["NTP_SERVER"]):
-  REF_TIME_1970 = 2208988800      # Reference time
-  client = socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
-  data = '\x1b' + 47 * '\0'
-  client.sendto( bytes(data, encoding='utf8'), (addr, 123))
-  data, address = client.recvfrom( 1024 )
-  if data:
-    t = struct.unpack( '!12I', data )[10]
-    t -= REF_TIME_1970
-  return datetime.fromtimestamp(t)
+    REF_TIME_1970 = 2208988800      # Reference time
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    data = '\x1b' + 47 * '\0'
+    client.sendto(bytes(data, encoding='utf8'), (addr, 123))
+    data, address = client.recvfrom(1024)
+    if data:
+        t = struct.unpack('!12I', data)[10]
+        t -= REF_TIME_1970
+    return datetime.fromtimestamp(t)
+
 
 EmailContent = namedtuple("EmailContent", ["body", "data", "images"])
 
+email_content_count = 0
+for i in config['CUSTOM_EMAIL_CONTENT']:
+    email_content_count += 1
+### TODO: lấy nội dung mail qua slice.id, dict.get(id) -> content
+if (email_content_count==0):
+    EMAIL_CONTENT = config['DEFAULT_EMAIL_CONTENT']
+else:
+    EMAIL_CONTENT = config['CUSTOM_EMAIL_CONTENT']
+
+def _get_email_content(id):
+    EMAIL_CONTENT = config['CUSTOM_EMAIL_CONTENT']
+    return EMAIL_CONTENT.get(id)
 
 def _get_recipients(schedule):
     bcc = config["EMAIL_REPORT_BCC_ADDRESS"]
@@ -108,6 +122,7 @@ def _generate_mail_content(schedule, screenshot, name, url):
     if schedule.delivery_type == EmailDeliveryType.attachment:
         images = None
         data = {"screenshot.png": screenshot}
+        if email_content_count==0
         body = __(
             '<p>Ngày %(_time)s</p></br><b><a href="%(url)s">%(view_more)s</a></b><p></p>',
             _time=now.strftime('%d/%m/%Y'),
@@ -229,8 +244,9 @@ def deliver_dashboard(schedule):
     """
     dashboard = schedule.dashboard
 
-    dashboard_url = _get_url_path("Superset.dashboard", dashboard_id=dashboard.id)
-
+    dashboard_url = _get_url_path(
+        "Superset.dashboard", dashboard_id=dashboard.id)
+    
     # Create a driver, fetch the page, wait for the page to render
     driver = create_webdriver()
     window = config["WEBDRIVER_WINDOW"]["dashboard"]
@@ -259,10 +275,21 @@ def deliver_dashboard(schedule):
         schedule, screenshot, dashboard.dashboard_title, dashboard_url
     )
 
-    subject = __(
-        "%(title)s",
-        title=dashboard.dashboard_title,
-    )
+    # Get current datetime
+    now = RequestTimefromNtp()
+
+    if (config['SHOW_TIME_ON_EMAIL_SUBJECT']):
+        subject = __(
+            "%(title)s (ngày %(_time)s)",
+            title=dashboard.dashboard_title,
+            _time=now.strftime('%d/%m/%Y')
+        )
+    else:
+        subject = __(
+            "%(title)s",
+            title=dashboard.dashboard_title,
+        )
+
 
     _deliver_email(schedule, subject, email)
 
@@ -369,10 +396,20 @@ def deliver_slice(schedule):
     else:
         raise RuntimeError("Unknown email report format")
 
-    subject = __(
-        "%(title)s",
-        title=schedule.slice.slice_name,
-    )
+    # Get current datetime
+    now = RequestTimefromNtp()
+
+    if (config['SHOW_TIME_ON_EMAIL_SUBJECT']):
+        subject = __(
+            "%(title)s (ngày %(_time)s)",
+            title=schedule.slice.slice_name,
+            _time=now.strftime('%d/%m/%Y')
+        )
+    else:
+        subject = __(
+            "%(title)s",
+            title=schedule.slice.slice_name,
+        )
 
     _deliver_email(schedule, subject, email)
 
@@ -457,7 +494,9 @@ def schedule_hourly():
     resolution = config["EMAIL_REPORTS_CRON_RESOLUTION"] * 60
 
     # Get the top of the hour
-    start_at = datetime.now(tzlocal()).replace(microsecond=0, second=0, minute=0)
+    start_at = datetime.now(tzlocal()).replace(
+        microsecond=0, second=0, minute=0)
     stop_at = start_at + timedelta(seconds=3600)
-    schedule_window(ScheduleType.dashboard.value, start_at, stop_at, resolution)
+    schedule_window(ScheduleType.dashboard.value,
+                    start_at, stop_at, resolution)
     schedule_window(ScheduleType.slice.value, start_at, stop_at, resolution)

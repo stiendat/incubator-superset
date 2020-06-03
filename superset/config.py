@@ -820,6 +820,11 @@ SIP_15_TOAST_MESSAGE = (
 
 EXPLORE_IN_SUPERSET = "View more"
 NTP_SERVER = "2.vn.pool.ntp.org"
+DEFAULT_EMAIL_CONTENT = "Hello world !"
+# CUSTOM_EMAIL_CONTENT = {
+#     slice.id : "Content"
+# }
+SHOW_TIME_ON_EMAIL_SUBJECT = True
 
 if CONFIG_PATH_ENV_VAR in os.environ:
     # Explicitly import config module that is not necessarily in pythonpath; useful
