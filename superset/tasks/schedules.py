@@ -55,6 +55,22 @@ logger.setLevel(logging.INFO)
 # Time in seconds, we will wait for the page to load and render
 PAGE_RENDER_WAIT = 30
 
+# Get current datetime
+# https://stackoverflow.com/questions/36500197/python-get-time-from-ntp-server
+import socket
+import struct
+import sys
+
+def RequestTimefromNtp(addr=config["NTP_SERVER"]):
+  REF_TIME_1970 = 2208988800      # Reference time
+  client = socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+  data = '\x1b' + 47 * '\0'
+  client.sendto( bytes(data, encoding='utf8'), (addr, 123))
+  data, address = client.recvfrom( 1024 )
+  if data:
+    t = struct.unpack( '!12I', data )[10]
+    t -= REF_TIME_1970
+  return datetime.fromtimestamp(t)
 
 EmailContent = namedtuple("EmailContent", ["body", "data", "images"])
 
@@ -86,13 +102,18 @@ def _deliver_email(schedule, subject, email):
 
 
 def _generate_mail_content(schedule, screenshot, name, url):
+    # Get current datetime
+    now = RequestTimefromNtp()
+
     if schedule.delivery_type == EmailDeliveryType.attachment:
         images = None
         data = {"screenshot.png": screenshot}
         body = __(
-            '<b><a href="%(url)s">Explore in Superset</a></b><p></p>',
+            '<p>Ngày %(_time)s</p></br><b><a href="%(url)s">%(view_more)s</a></b><p></p>',
+            _time=now.strftime('%d/%m/%Y'),
             name=name,
             url=url,
+            view_more=config['EXPLORE_IN_SUPERSET'],
         )
     elif schedule.delivery_type == EmailDeliveryType.inline:
         # Get the domain from the 'From' address ..
@@ -104,12 +125,16 @@ def _generate_mail_content(schedule, screenshot, name, url):
         data = None
         body = __(
             """
-            <b><a href="%(url)s">Explore in Superset</a></b><p></p>
+            <p>Ngày %(_time)s</p></br>
             <img src="cid:%(msgid)s">
+            <b><a href="%(url)s">%(view_more)s</a></b><p></p>
+
             """,
+            _time=now.strftime('%d/%m/%Y'),
             name=name,
             url=url,
             msgid=msgid,
+            view_more=config['EXPLORE_IN_SUPERSET'],
         )
 
     return EmailContent(body, data, images)
@@ -235,8 +260,7 @@ def deliver_dashboard(schedule):
     )
 
     subject = __(
-        "%(prefix)s %(title)s",
-        prefix=config["EMAIL_REPORTS_SUBJECT_PREFIX"],
+        "%(title)s",
         title=dashboard.dashboard_title,
     )
 
@@ -263,6 +287,9 @@ def _get_slice_data(schedule):
     if response.getcode() != 200:
         raise URLError(response.getcode())
 
+    # Get current time
+    now = RequestTimefromNtp()
+
     # TODO: Move to the csv module
     content = response.read()
     rows = [r.split(b",") for r in content.splitlines()]
@@ -279,14 +306,18 @@ def _get_slice_data(schedule):
                 rows=rows,
                 name=slc.slice_name,
                 link=url,
+                view_more=config['EXPLORE_IN_SUPERSET'],
+                time=now.strftime('%d/%m/%Y')
             )
 
     elif schedule.delivery_type == EmailDeliveryType.attachment:
         data = {__("%(name)s.csv", name=slc.slice_name): content}
         body = __(
-            '<b><a href="%(url)s">Explore in Superset</a></b><p></p>',
+            '<p>Ngày %(_time)s</p></br><b><a href="%(url)s">%(view_more)s</a></b><p></p>',
+            _time=now.strftime('%d/%m/%Y'),
             name=slc.slice_name,
             url=url,
+            view_more=config['EXPLORE_IN_SUPERSET'],
         )
 
     return EmailContent(body, data, None)
@@ -339,8 +370,7 @@ def deliver_slice(schedule):
         raise RuntimeError("Unknown email report format")
 
     subject = __(
-        "%(prefix)s %(title)s",
-        prefix=config["EMAIL_REPORTS_SUBJECT_PREFIX"],
+        "%(title)s",
         title=schedule.slice.slice_name,
     )
 

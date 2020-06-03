@@ -818,6 +818,9 @@ SIP_15_TOAST_MESSAGE = (
     'class="alert-link">here</a>.'
 )
 
+EXPLORE_IN_SUPERSET = "View more"
+NTP_SERVER = "2.vn.pool.ntp.org"
+
 if CONFIG_PATH_ENV_VAR in os.environ:
     # Explicitly import config module that is not necessarily in pythonpath; useful
     # for case where app is being executed via pex.

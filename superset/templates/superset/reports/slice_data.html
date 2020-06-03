@@ -21,7 +21,7 @@
   </head>
   <body>
     <p></p>
-    <b><a href="{{ link }}">Explore this data in Superset</a></b>
+    <b>Ngày {{ time }}</b>
     <p></p>
     <table border='1' cellspacing='0' cellpadding='3'
       style='border: 1px solid #c0c0c0; border-collapse: collapse;'>
@@ -45,5 +45,6 @@
         {%- endfor %}
       </tbody>
     </table>
+    <b><a href="{{ link }}">{{ view_more }}</a></b>
   </body>
 </html>
