@@ -17,15 +17,15 @@
 
 """Utility functions used across Superset"""
 
+
 import sys
-import struct
-import socket
 import logging
 import time
 import urllib.request
 from collections import namedtuple
 from datetime import datetime, timedelta
 from email.utils import make_msgid, parseaddr
+from urllib.request import urlopen
 from urllib.error import URLError  # pylint: disable=ungrouped-imports
 
 import croniter
@@ -42,6 +42,8 @@ from werkzeug.http import parse_cookie
 # Superset framework imports
 from superset import app, db, security_manager
 from superset.extensions import celery_app
+from superset.models.dashboard import Dashboard
+from superset.models.slice import Slice
 from superset.models.schedules import (
     EmailDeliveryType,
     get_scheduler_model,
@@ -62,32 +64,40 @@ PAGE_RENDER_WAIT = 30
 # https://stackoverflow.com/questions/36500197/python-get-time-from-ntp-server
 
 
-def RequestTimefromNtp(addr=config["NTP_SERVER"]):
-    REF_TIME_1970 = 2208988800      # Reference time
-    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    data = '\x1b' + 47 * '\0'
-    client.sendto(bytes(data, encoding='utf8'), (addr, 123))
-    data, address = client.recvfrom(1024)
-    if data:
-        t = struct.unpack('!12I', data)[10]
-        t -= REF_TIME_1970
-    return datetime.fromtimestamp(t)
+# def RequestTimefromNtp(addr=config["NTP_SERVER"]):
+#     REF_TIME_1970 = 2208988800      # Reference time
+#     client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+#     data = '\x1b' + 47 * '\0'
+#     client.sendto(bytes(data, encoding='utf8'), (addr, 123))
+#     data, address = client.recvfrom(1024)
+#     if data:
+#         t = struct.unpack('!12I', data)[10]
+#         t -= REF_TIME_1970
+#     return datetime.fromtimestamp(t)
 
+# Moved to superset.utils.request_time_from_ntp
+from superset.utils.request_time_from_ntp import RequestTimefromNtp
 
 EmailContent = namedtuple("EmailContent", ["body", "data", "images"])
 
-email_content_count = 0
-for i in config['CUSTOM_EMAIL_CONTENT']:
-    email_content_count += 1
-### TODO: lấy nội dung mail qua slice.id, dict.get(id) -> content
-if (email_content_count==0):
-    EMAIL_CONTENT = config['DEFAULT_EMAIL_CONTENT']
-else:
-    EMAIL_CONTENT = config['CUSTOM_EMAIL_CONTENT']
+# email_content_count = 0
+# for i in config['CUSTOM_EMAIL_CONTENT']:
+#     email_content_count += 1
+# ### TODO: lấy nội dung mail qua slice.id, dict.get(id) -> content
+# if (email_content_count==0):
+#     EMAIL_CONTENT = config['DEFAULT_EMAIL_CONTENT']
+# else:
+#     EMAIL_CONTENT = config['CUSTOM_EMAIL_CONTENT']
 
-def _get_email_content(id):
-    EMAIL_CONTENT = config['CUSTOM_EMAIL_CONTENT']
-    return EMAIL_CONTENT.get(id)
+# # def _get_email_content(id):
+# #     EMAIL_CONTENT = config['CUSTOM_EMAIL_CONTENT']
+# #     return EMAIL_CONTENT.get(id)
+# def _get_email_content():
+#     # Parse string
+#     #   Ex: Hello {{name}}! {{time}}
+#     EMAIL_CONTENT = config['USER_EMAIL_CONTENT']
+#     EMAIL_CONTENT.split('{{').split('}}')
+
 
 def _get_recipients(schedule):
     bcc = config["EMAIL_REPORT_BCC_ADDRESS"]
@@ -122,7 +132,6 @@ def _generate_mail_content(schedule, screenshot, name, url):
     if schedule.delivery_type == EmailDeliveryType.attachment:
         images = None
         data = {"screenshot.png": screenshot}
-        if email_content_count==0
         body = __(
             '<p>Ngày %(_time)s</p></br><b><a href="%(url)s">%(view_more)s</a></b><p></p>',
             _time=now.strftime('%d/%m/%Y'),
@@ -246,7 +255,7 @@ def deliver_dashboard(schedule):
 
     dashboard_url = _get_url_path(
         "Superset.dashboard", dashboard_id=dashboard.id)
-    
+
     # Create a driver, fetch the page, wait for the page to render
     driver = create_webdriver()
     window = config["WEBDRIVER_WINDOW"]["dashboard"]
@@ -289,7 +298,6 @@ def deliver_dashboard(schedule):
             "%(title)s",
             title=dashboard.dashboard_title,
         )
-
 
     _deliver_email(schedule, subject, email)
 
@@ -334,7 +342,7 @@ def _get_slice_data(schedule):
                 name=slc.slice_name,
                 link=url,
                 view_more=config['EXPLORE_IN_SUPERSET'],
-                time=now.strftime('%d/%m/%Y')
+
             )
 
     elif schedule.delivery_type == EmailDeliveryType.attachment:
@@ -348,6 +356,126 @@ def _get_slice_data(schedule):
         )
 
     return EmailContent(body, data, None)
+
+
+def _get_raw_data(slice_id):
+    slice_url = _get_url_path(
+        "Superset.explore_json", csv="true", form_data=json.dumps({"slice_id": slice_id})
+    )
+    url = _get_url_path("Superset.slice", slice_id=slice_id)
+
+    cookies = {}
+    for cookie in _get_auth_cookies():
+        cookies["session"] = cookie
+
+    opener = urllib.request.build_opener()
+    opener.addheaders.append(("Cookie", f"session={cookies['session']}"))
+    response = opener.open(slice_url)
+    if response.getcode() != 200:
+        raise URLError(response.getcode())
+
+    # TODO: Move to the csv module
+    content = response.read()
+    rows = [r.split(b",") for r in content.splitlines()]
+    columns = rows.pop(0)
+    content_raw = """<table border='1' cellspacing='0' cellpadding='3'
+      style='border: 1px solid #c0c0c0; border-collapse: collapse;'>
+      <thead>
+        <tr>
+    """
+    for column in columns:
+        content_raw += "<th bgcolor='#f0f0f0'>{0}</th>".format(
+            column.decode('utf-8').replace('_', ' '))
+    content_raw += "</tr> </thead><tbody>"
+    for row in rows:
+        content_raw += "<tr>"
+        for column in row:
+            content_raw += """<td>{0}</td>""".format(column.decode('utf-8'))
+        content_raw += "</tr>"
+    content_raw += "</tbody></table>"
+
+    return content_raw
+
+
+def _get_slice_capture(slice_id):
+
+    # Create a driver, fetch the page, wait for the page to render
+    driver = create_webdriver()
+    window = config["WEBDRIVER_WINDOW"]["slice"]
+    driver.set_window_size(*window)
+
+    slice_url = _get_url_path("Superset.slice", slice_id=slice_id)
+
+    driver.get(slice_url)
+    time.sleep(PAGE_RENDER_WAIT)
+
+    # Set up a function to retry once for the element.
+    # This is buggy in certain selenium versions with firefox driver
+    element = retry_call(
+        driver.find_element_by_class_name,
+        fargs=["chart-container"],
+        tries=2,
+        delay=PAGE_RENDER_WAIT,
+    )
+
+    try:
+        screenshot = element.screenshot_as_png
+    except WebDriverException:
+        # Some webdrivers do not support screenshots for elements.
+        # In such cases, take a screenshot of the entire page.
+        screenshot = driver.screenshot()  # pylint: disable=no-member
+    finally:
+        destroy_webdriver(driver)
+
+    # Generate the email body and attachments
+    return screenshot
+
+
+def deliver_dashboard_v2(schedule):
+    """
+    Given a schedule, delivery the dashboard as an email report
+    """
+
+    # Get current time
+    now = RequestTimefromNtp()
+
+    dashboard = schedule.dashboard
+    content = """<b>Dear các anh,</b><p></p>"""
+
+    # TODO: Fix lay list slice id trong dashboa0rd
+    # slice_arr = db.session.query(Dashboard.id).charts()
+    slice_arr = list()
+    with urlopen('http://{0}:{1}/dashboard/export_dashboards_form?id={2}&action=go'.format(config['SUPERSET_WEBSERVER_ADDRESS'], config['SUPERSET_WEBSERVER_PORT'], dashboard.id)) as __dashboard__:
+        dashboard_content = __dashboard__.read().decode()
+    dashboard_content = json.loads(dashboard_content)
+    for _item in dashboard_content['dashboards'][0]['__Dashboard__']['slices']:
+        slice_arr.append((_item['__Slice__']['id'], _item['__Slice__']['viz_type']))
+
+    for slice_id in slice_arr:
+        # db query not working !!!
+        # type_slice = db.session.query(Slice.id).viz_type
+        type_slice = slice_id[1]
+        if type_slice == 'table':
+            content += _get_raw_data(slice_id[0])
+        else:
+            img = _get_slice_capture(slice_id[0])
+            content += """<img src="cid:{0}">""".format(img)
+    # Generate the email body and attachments
+    content += ""
+    email = EmailContent(content)
+    if (config['SHOW_TIME_ON_EMAIL_SUBJECT']):
+        subject = __(
+            "%(title)s (ngày %(_time)s)",
+            title=dashboard.dashboard_title,
+            _time=now.strftime('%d/%m/%Y')
+        )
+    else:
+        subject = __(
+            "%(title)s",
+            title=dashboard.dashboard_title,
+        )
+
+    _deliver_email(schedule, subject, email)
 
 
 def _get_slice_visualization(schedule):
@@ -436,7 +564,8 @@ def schedule_email_report(
         schedule.recipients = recipients
 
     if report_type == ScheduleType.dashboard.value:
-        deliver_dashboard(schedule)
+        # deliver_dashboard(schedule)
+        deliver_dashboard_v2(schedule)
     elif report_type == ScheduleType.slice.value:
         deliver_slice(schedule)
     else:

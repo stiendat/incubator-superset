@@ -39,6 +39,8 @@ from superset.typing import CacheConfig
 from superset.utils.log import DBEventLogger
 from superset.utils.logging_configurator import DefaultLoggingConfigurator
 
+from superset.utils.request_time_from_ntp import RequestTimefromNtp
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -824,6 +826,12 @@ DEFAULT_EMAIL_CONTENT = "Hello world !"
 # CUSTOM_EMAIL_CONTENT = {
 #     slice.id : "Content"
 # }
+
+class CustomEmailFunction:
+
+
+
+USER_EMAIL_CONTENT = "Kính gửi anh/chị {{name}} ngày {{time}}"
 SHOW_TIME_ON_EMAIL_SUBJECT = True
 
 if CONFIG_PATH_ENV_VAR in os.environ:
