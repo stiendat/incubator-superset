@@ -445,11 +445,14 @@ def deliver_dashboard_v2(schedule):
     # TODO: Fix lay list slice id trong dashboa0rd
     # slice_arr = db.session.query(Dashboard.id).charts()
     slice_arr = list()
-    with urlopen('http://{0}:{1}/dashboard/export_dashboards_form?id={2}&action=go'.format(config['SUPERSET_WEBSERVER_ADDRESS'], config['SUPERSET_WEBSERVER_PORT'], dashboard.id)) as __dashboard__:
+    with urlopen('{0}dashboard/export_dashboards_form?id={1}&action=go'.format(config['WEBDRIVER_BASEURL'], dashboard.id)) as __dashboard__:
         dashboard_content = __dashboard__.read().decode()
     dashboard_content = json.loads(dashboard_content)
     for _item in dashboard_content['dashboards'][0]['__Dashboard__']['slices']:
         slice_arr.append((_item['__Slice__']['id'], _item['__Slice__']['viz_type']))
+
+    # Dicts chứa thông tin ảnh {cidID : sceenshot}
+    images = dict()
 
     for slice_id in slice_arr:
         # db query not working !!!
@@ -459,10 +462,11 @@ def deliver_dashboard_v2(schedule):
             content += _get_raw_data(slice_id[0])
         else:
             img = _get_slice_capture(slice_id[0])
-            content += """<img src="cid:{0}">""".format(img)
+            images['{}'.format(slice_id[0])] = img
+            content += """<img src="cid:{0}">""".format(slice_id[0])
     # Generate the email body and attachments
     content += ""
-    email = EmailContent(content)
+    email = EmailContent(content, None, images=images)
     if (config['SHOW_TIME_ON_EMAIL_SUBJECT']):
         subject = __(
             "%(title)s (ngày %(_time)s)",
