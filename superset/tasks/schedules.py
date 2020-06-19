@@ -378,8 +378,8 @@ def _get_raw_data(slice_id):
         raise URLError(response.getcode())
 
     # TODO: Move to the csv module
-    content = response.read()
-    df = pd.read_csv(content.decode('utf-8'), header=0)
+    # content = response.read()
+    df = pd.read_csv(response, header=0)
     df = df.sort_values('Ngày', ascending=False)
     columns = [x for x in df]
     # rows = [r.split(b",") for r in content.splitlines()]
