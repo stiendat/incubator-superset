@@ -391,12 +391,12 @@ def _get_raw_data(slice_id):
     """
     for column in columns:
         content_raw += "<th bgcolor='#f0f0f0'>{0}</th>".format(
-            column.decode('utf-8').replace('_', ' '))
+            column.replace('_', ' '))
     content_raw += "</tr> </thead><tbody>"
     for row in df.index:
         content_raw += "<tr>"
         for column in df:
-            content_raw += """<td>{0}</td>""".format(column.decode('utf-8'))
+            content_raw += """<td>{0}</td>""".format(df[column][row])
         content_raw += "</tr>"
     content_raw += "</tbody></table>"
 
