@@ -440,16 +440,17 @@ def deliver_dashboard_v2(schedule):
     now = RequestTimefromNtp()
 
     dashboard = schedule.dashboard
-    content = """<b>Dear các anh,</b><p></p>"""
+    content = """<b>Dear các anh/chị,</b>
+    Kính gửi anh/chị {} ngày {}<p></p>""".format(dashboard.dashboard_title, now.strftime('%d/%m/%Y'))
 
-    # TODO: Fix lay list slice id trong dashboa0rd
+    # TODO: Fix lay list slice id trong dashboard
     # slice_arr = db.session.query(Dashboard.id).charts()
     slice_arr = list()
     with urlopen('{0}dashboard/export_dashboards_form?id={1}&action=go'.format(config['WEBDRIVER_BASEURL'], dashboard.id)) as __dashboard__:
         dashboard_content = __dashboard__.read().decode()
     dashboard_content = json.loads(dashboard_content)
     for _item in dashboard_content['dashboards'][0]['__Dashboard__']['slices']:
-        slice_arr.append((_item['__Slice__']['id'], _item['__Slice__']['viz_type']))
+        slice_arr.append((_item['__Slice__']['id'], _item['__Slice__']['viz_type'], _item['__Slice__']['slice_name']))
 
     # Dicts chứa thông tin ảnh {cidID : sceenshot}
     images = dict()
@@ -458,7 +459,9 @@ def deliver_dashboard_v2(schedule):
         # db query not working !!!
         # type_slice = db.session.query(Slice.id).viz_type
         type_slice = slice_id[1]
-        if type_slice == 'table':
+        # Thêm tiêu đề của chart
+        content += str(slice_id[2])
+        if type_slice == 'pivot_table':
             content += _get_raw_data(slice_id[0])
         else:
             img = _get_slice_capture(slice_id[0])
