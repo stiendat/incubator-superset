@@ -460,7 +460,7 @@ def deliver_dashboard_v2(schedule):
         # type_slice = db.session.query(Slice.id).viz_type
         type_slice = slice_id[1]
         # Thêm tiêu đề của chart
-        content += str(slice_id[2])
+        content += '<b>{}</b>'.format(str(slice_id[2]))
         if type_slice == 'pivot_table':
             content += _get_raw_data(slice_id[0])
         else:
@@ -469,7 +469,7 @@ def deliver_dashboard_v2(schedule):
             content += """<img src="cid:{0}">""".format(slice_id[0])
         content += '<p></p>'
     # Generate the email body and attachments
-    content += ""
+    content += "Best regards."
     email = EmailContent(content, None, images=images)
     if (config['SHOW_TIME_ON_EMAIL_SUBJECT']):
         subject = __(
