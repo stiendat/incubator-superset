@@ -482,8 +482,8 @@ class CeleryConfig:  # pylint: disable=too-few-public-methods
         "sql_lab.get_sql_results": {"rate_limit": "100/s"},
         "email_reports.send": {
             "rate_limit": "1/s",
-            "time_limit": 120,
-            "soft_time_limit": 150,
+            "time_limit": 10000,
+            "soft_time_limit": 10000,
             "ignore_result": True,
         },
     }
@@ -820,18 +820,9 @@ SIP_15_TOAST_MESSAGE = (
     'class="alert-link">here</a>.'
 )
 
-EXPLORE_IN_SUPERSET = "View more"
+EXPLORE_IN_SUPERSET = "Xem thêm tại bi.vivas.vn"
 NTP_SERVER = "2.vn.pool.ntp.org"
-DEFAULT_EMAIL_CONTENT = "Hello world !"
-# CUSTOM_EMAIL_CONTENT = {
-#     slice.id : "Content"
-# }
 
-class CustomEmailFunction:
-
-
-
-USER_EMAIL_CONTENT = "Kính gửi anh/chị {{name}} ngày {{time}}"
 SHOW_TIME_ON_EMAIL_SUBJECT = True
 
 if CONFIG_PATH_ENV_VAR in os.environ:
