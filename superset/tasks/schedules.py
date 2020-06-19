@@ -440,7 +440,7 @@ def deliver_dashboard_v2(schedule):
     now = RequestTimefromNtp()
 
     dashboard = schedule.dashboard
-    content = """<b>Dear các anh/chị,</b>
+    content = """<b>Dear các anh/chị,</b><p></p>
     Kính gửi anh/chị {} ngày {}<p></p>""".format(dashboard.dashboard_title, now.strftime('%d/%m/%Y'))
 
     # TODO: Fix lay list slice id trong dashboard
@@ -467,6 +467,7 @@ def deliver_dashboard_v2(schedule):
             img = _get_slice_capture(slice_id[0])
             images['{}'.format(slice_id[0])] = img
             content += """<img src="cid:{0}">""".format(slice_id[0])
+        content += '<p></p>'
     # Generate the email body and attachments
     content += ""
     email = EmailContent(content, None, images=images)
