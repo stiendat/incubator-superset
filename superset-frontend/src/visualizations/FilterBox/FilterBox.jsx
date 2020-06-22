@@ -343,7 +343,7 @@ class FilterBox extends React.Component {
               bsSize="small"
               bsStyle="primary"
               onClick={this.clickApply.bind(this)}
-              disabled={!this.state.hasChanged}
+              //disabled={!this.state.hasChanged}
             >
               {t('Apply')}
             </Button>

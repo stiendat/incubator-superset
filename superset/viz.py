@@ -748,6 +748,7 @@ class PivotTableViz(BaseViz):
             columns=columns,
             values=metrics,
             aggfunc=aggfunc,
+            margins_name = "Tổng",
             margins=self.form_data.get("pivot_margins"),
         )
 
