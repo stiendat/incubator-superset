@@ -365,7 +365,7 @@ def _get_raw_data(slice_id):
     slice_url = _get_url_path(
         "Superset.explore_json", csv="true", form_data=json.dumps({"slice_id": slice_id})
     )
-    url = _get_url_path("Superset.slice", slice_id=slice_id)
+    #url = _get_url_path("Superset.slice", slice_id=slice_id)
 
     cookies = {}
     for cookie in _get_auth_cookies():
@@ -380,8 +380,10 @@ def _get_raw_data(slice_id):
     # TODO: Move to the csv module
     # content = response.read()
     df = pd.read_csv(response, header=0)
-    df = df.sort_values('Ngày', ascending=False)
-    columns = [x for x in df]
+    pv = pd.pivot_table(df, index=['Ngày'], margins_name = "Tổng", aggfunc=np.sum, margins = True)
+    pv = pv.reset_index()
+    # df = df.sort_values('Ngày', ascending=False)
+    columns = [x for x in pv]
     # rows = [r.split(b",") for r in content.splitlines()]
     # columns = rows.pop(0)
     content_raw = """<table border='1' cellspacing='0' cellpadding='3'
@@ -393,10 +395,10 @@ def _get_raw_data(slice_id):
         content_raw += "<th bgcolor='#f0f0f0'>{0}</th>".format(
             column.replace('_', ' '))
     content_raw += "</tr> </thead><tbody>"
-    for row in df.index:
+    for row in pv.index:
         content_raw += "<tr>"
-        for column in df:
-            content_raw += """<td>{0}</td>""".format(df[column][row])
+        for column in pv:
+            content_raw += """<td>{0}</td>""".format(pv[column][row])
         content_raw += "</tr>"
     content_raw += "</tbody></table>"
 
@@ -419,7 +421,7 @@ def _get_slice_capture(slice_id):
     # This is buggy in certain selenium versions with firefox driver
     element = retry_call(
         driver.find_element_by_class_name,
-        fargs=["chart-container"],
+        fargs=["slice_container"],
         tries=2,
         delay=PAGE_RENDER_WAIT,
     )
@@ -456,7 +458,12 @@ def deliver_dashboard_v2(schedule):
         dashboard_content = __dashboard__.read().decode()
     dashboard_content = json.loads(dashboard_content)
     for _item in dashboard_content['dashboards'][0]['__Dashboard__']['slices']:
-        slice_arr.append((_item['__Slice__']['id'], _item['__Slice__']['viz_type'], _item['__Slice__']['slice_name']))
+        # name_arr = [tên dịch vụ, tên chart]
+        name_arr = _item['__Slice__']['slice_name'].split('-')
+        pos = name_arr[0].split('.')[0]
+        name_arr = [name_arr[1][1:-1], name_arr[2][1:]]
+        slice_arr.append((_item['__Slice__']['id'], _item['__Slice__']['viz_type'], name_arr, pos))
+    slice_arr = slice_arr.sort(key=lambda x:int(x[3]))
 
     # Dicts chứa thông tin ảnh {cidID : sceenshot}
     images = dict()
@@ -466,13 +473,14 @@ def deliver_dashboard_v2(schedule):
         # type_slice = db.session.query(Slice.id).viz_type
         type_slice = slice_id[1]
         # Thêm tiêu đề của chart
-        content += '<b>{}</b>'.format(str(slice_id[2]))
+        content += '</br><b>{}</b></br>'.format(str(slice_id[2][1]))
         if type_slice == 'pivot_table':
+
             content += _get_raw_data(slice_id[0])
         else:
             img = _get_slice_capture(slice_id[0])
             images['{}'.format(slice_id[0])] = img
-            content += """<img src="cid:{0}">""".format(slice_id[0])
+            content += """<img src="cid:{0}" style="width: 100%; height: auto">""".format(slice_id[0])
         content += '<p></p>'
     # Generate the email body and attachments
     content += "Best regards."
@@ -480,13 +488,13 @@ def deliver_dashboard_v2(schedule):
     if (config['SHOW_TIME_ON_EMAIL_SUBJECT']):
         subject = __(
             "%(title)s (ngày %(_time)s)",
-            title=dashboard.dashboard_title,
+            title=dashboard.dashboard_title.split('-')[2],
             _time=now.strftime('%d/%m/%Y')
         )
     else:
         subject = __(
             "%(title)s",
-            title=dashboard.dashboard_title,
+            title=dashboard.dashboard_title.split('-')[2],
         )
 
     _deliver_email(schedule, subject, email)
