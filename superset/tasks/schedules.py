@@ -54,6 +54,7 @@ from superset.utils.core import get_email_address_list, send_email_smtp
 
 # Sorting table
 import pandas as pd
+import numpy as np
 
 # Globals
 config = app.config
@@ -392,7 +393,7 @@ def _get_raw_data(slice_id):
         <tr>
     """
     for column in columns:
-        content_raw += "<th bgcolor='#f0f0f0'>{0}</th>".format(
+        content_raw += "<th bgcolor='#92d050'>{0}</th>".format(
             column.replace('_', ' '))
     content_raw += "</tr> </thead><tbody>"
     for row in pv.index:
@@ -449,7 +450,7 @@ def deliver_dashboard_v2(schedule):
 
     dashboard = schedule.dashboard
     content = """<b>Dear các anh/chị,</b><p></p>
-    Kính gửi anh/chị {} ngày {}<p></p>""".format(dashboard.dashboard_title, now.strftime('%d/%m/%Y'))
+    Kính gửi anh/chị Báo cáo dịch vụ {} ngày {}<p></p>""".format(dashboard.dashboard_title.split('-')[1], now.strftime('%d/%m/%Y'))
 
     # TODO: Fix lay list slice id trong dashboard
     # slice_arr = db.session.query(Dashboard.id).charts()
@@ -463,7 +464,7 @@ def deliver_dashboard_v2(schedule):
         pos = name_arr[0].split('.')[0]
         name_arr = [name_arr[1][1:-1], name_arr[2][1:]]
         slice_arr.append((_item['__Slice__']['id'], _item['__Slice__']['viz_type'], name_arr, pos))
-    slice_arr = slice_arr.sort(key=lambda x:int(x[3]))
+    slice_arr.sort(key=lambda x:int(x[3]))
 
     # Dicts chứa thông tin ảnh {cidID : sceenshot}
     images = dict()
@@ -480,7 +481,7 @@ def deliver_dashboard_v2(schedule):
         else:
             img = _get_slice_capture(slice_id[0])
             images['{}'.format(slice_id[0])] = img
-            content += """<img src="cid:{0}" style="width: 100%; height: auto">""".format(slice_id[0])
+            content += """<img src="cid:{0}" width="100%" height="auto">""".format(slice_id[0])
         content += '<p></p>'
     # Generate the email body and attachments
     content += "Best regards."
@@ -488,13 +489,13 @@ def deliver_dashboard_v2(schedule):
     if (config['SHOW_TIME_ON_EMAIL_SUBJECT']):
         subject = __(
             "%(title)s (ngày %(_time)s)",
-            title=dashboard.dashboard_title.split('-')[2],
+            title='Báo cáo dịch vụ {}'.format(dashboard.dashboard_title.split('-')[1]),
             _time=now.strftime('%d/%m/%Y')
         )
     else:
         subject = __(
             "%(title)s",
-            title=dashboard.dashboard_title.split('-')[2],
+            title='Báo cáo dịch vụ {}'.format(dashboard.dashboard_title.split('-')[1]),
         )
 
     _deliver_email(schedule, subject, email)
