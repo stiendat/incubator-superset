@@ -822,8 +822,10 @@ SIP_15_TOAST_MESSAGE = (
 
 EXPLORE_IN_SUPERSET = "Xem thêm tại bi.vivas.vn"
 NTP_SERVER = "2.vn.pool.ntp.org"
-
+EMAIL_CHART_PICTURE_CACHE_DIR = '/tmp/'
 SHOW_TIME_ON_EMAIL_SUBJECT = True
+MARKER_LIST = ['s', 'o']
+LINE_COLOR_LIST = ['red', 'blue', 'green']
 
 if CONFIG_PATH_ENV_VAR in os.environ:
     # Explicitly import config module that is not necessarily in pythonpath; useful

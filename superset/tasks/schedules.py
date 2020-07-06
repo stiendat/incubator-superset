@@ -40,7 +40,7 @@ from selenium.webdriver import chrome, firefox
 from werkzeug.http import parse_cookie
 
 # Superset framework imports
-from superset import app, db, security_manager
+from superset import app, db, security_manager, cache
 from superset.extensions import celery_app
 from superset.models.dashboard import Dashboard
 from superset.models.slice import Slice
@@ -55,6 +55,13 @@ from superset.utils.core import get_email_address_list, send_email_smtp
 # Sorting table
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+from email.mime.image import MIMEImage
+import os
+import random
+from matplotlib.dates import DateFormatter
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
 
 # Globals
 config = app.config
@@ -156,10 +163,8 @@ def _generate_mail_content(schedule, screenshot, name, url):
             <p>Ngày %(_time)s</p></br>
             <img src="cid:%(msgid)s">
             <b><a href="%(url)s">%(view_more)s</a></b><p></p>
-
             """,
             _time=now.strftime('%d/%m/%Y'),
-            name=name,
             url=url,
             msgid=msgid,
             view_more=config['EXPLORE_IN_SUPERSET'],
@@ -361,13 +366,12 @@ def _get_slice_data(schedule):
 
     return EmailContent(body, data, None)
 
-
-def _get_raw_data(slice_id):
+def _get_csv(slice_id):
+    cache.clear()
     slice_url = _get_url_path(
         "Superset.explore_json", csv="true", form_data=json.dumps({"slice_id": slice_id})
     )
     #url = _get_url_path("Superset.slice", slice_id=slice_id)
-
     cookies = {}
     for cookie in _get_auth_cookies():
         cookies["session"] = cookie
@@ -378,11 +382,24 @@ def _get_raw_data(slice_id):
     if response.getcode() != 200:
         raise URLError(response.getcode())
 
+    return response
+
+
+def _get_raw_data(slice_id):
+    response = _get_csv(slice_id)
+
     # TODO: Move to the csv module
     # content = response.read()
     df = pd.read_csv(response, header=0)
     pv = pd.pivot_table(df, index=['Ngày'], margins_name = "Tổng", aggfunc=np.sum, margins = True)
     pv = pv.reset_index()
+    
+    try:
+        for row in df.index:
+            temp = pv['Ngày'][row].split('-')
+            pv.loc[row, 'Ngày'] = temp[2] + '-' + temp[1] + '-' + temp[0]
+    except:
+        pass
     # df = df.sort_values('Ngày', ascending=False)
     columns = [x for x in pv]
     # rows = [r.split(b",") for r in content.splitlines()]
@@ -406,7 +423,7 @@ def _get_raw_data(slice_id):
     return content_raw
 
 
-def _get_slice_capture(slice_id):
+def _get_slice_capture_old(slice_id):
 
     # Create a driver, fetch the page, wait for the page to render
     driver = create_webdriver()
@@ -439,6 +456,46 @@ def _get_slice_capture(slice_id):
     # Generate the email body and attachments
     return screenshot
 
+def _get_slice_capture(slice_id):
+    count_marker = 0
+    count_color = 0
+    response = _get_csv(slice_id)
+    mydateparser = lambda x: pd.datetime.strptime(x, "%Y-%m-%d %H:%M:%S+00:00")
+    df = pd.read_csv(response, parse_dates=['__timestamp'], date_parser=mydateparser)
+    # ffff
+    #df['__timestamp'] = pd.to_datetime(df["__timestamp"].dt.strftime('%d-%m-%Y'))
+    df = df.set_index('__timestamp')
+    df = df.sort_index()
+    date_format = DateFormatter('%d-%m-%Y')
+    fig, ax = plt.subplots(figsize=(15, 5))
+    #plt.figure(figsize=(15, 5))
+    plt.xticks(rotation=15)
+    ax.xaxis.set_major_formatter(date_format)
+    # plt.ylabel("asd")
+    for i in df.columns:
+        plt.plot(df[i], label=i, color=config['LINE_COLOR_LIST'][count_color])
+        for idx,data in enumerate(df[i]):
+            plt.text(df[i].index[idx], data, data, fontsize=12)
+            try:
+                plt.scatter(df[i].index[idx], data, marker=config['MARKER_LIST'][count_marker], color=config['LINE_COLOR_LIST'][count_color], s=50)
+            except IndexError:
+                raise IndexError('Current pos: \n i in df.cols: {}\n count_marker = {}\n marker = {}\n count_color = {}\n color = {}'.format(str(i), str(count_marker), str(config['MARKER_LIST']), str(count_color), str(config['LINE_COLOR_LIST'])))
+            #plt.scatter(df[i].index[idx], data, marker='o', color='red', s=50)
+        count_marker += 1
+        if count_marker == len(config['MARKER_LIST']):
+            count_marker = 0
+        count_color += 1
+        if count_color == len(config['LINE_COLOR_LIST']):
+            count_color = 0
+    plt.legend(loc='best')
+    file_name = str(random.getrandbits(64))
+    plt.savefig(config['EMAIL_CHART_PICTURE_CACHE_DIR'] + file_name + 'temp.png')
+    # fp = open(config['EMAIL_CHART_PICTURE_CACHE_DIR'] + 'temp.png', 'rb')
+    # img = fp.read()
+    # fp.close()
+    # os.remove(config['EMAIL_CHART_PICTURE_CACHE_DIR'] + 'temp.png', 'rb')
+    return config['EMAIL_CHART_PICTURE_CACHE_DIR'] + file_name + 'temp.png'
+
 
 def deliver_dashboard_v2(schedule):
     """
@@ -468,6 +525,7 @@ def deliver_dashboard_v2(schedule):
 
     # Dicts chứa thông tin ảnh {cidID : sceenshot}
     images = dict()
+    img_file_list = list()
 
     for slice_id in slice_arr:
         # db query not working !!!
@@ -479,8 +537,10 @@ def deliver_dashboard_v2(schedule):
 
             content += _get_raw_data(slice_id[0])
         else:
-            img = _get_slice_capture(slice_id[0])
-            images['{}'.format(slice_id[0])] = img
+            img_path = _get_slice_capture(slice_id[0])
+            img = open(img_path, 'rb')
+            img_file_list.append(img)
+            images['{}'.format(slice_id[0])] = img.read()
             content += """<img src="cid:{0}" width="100%" height="auto">""".format(slice_id[0])
         content += '<p></p>'
     # Generate the email body and attachments
@@ -499,6 +559,8 @@ def deliver_dashboard_v2(schedule):
         )
 
     _deliver_email(schedule, subject, email)
+    for file_ in img_file_list:
+        file_.close()
 
 
 def _get_slice_visualization(schedule):

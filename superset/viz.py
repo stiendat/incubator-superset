@@ -406,7 +406,7 @@ class BaseViz:
             payload["data"] = self.get_data(df)
         if "df" in payload:
             del payload["df"]
-        return payload
+        return payload 
 
     def get_df_payload(self, query_obj=None, **kwargs):
         """Handles caching around the df payload retrieval"""
@@ -522,7 +522,7 @@ class BaseViz:
 
     @property
     def json_data(self):
-        return json.dumps(self.data)
+        return pretty_float_json_dumps(self.data)
 
 
 class TableViz(BaseViz):
@@ -570,7 +570,7 @@ class TableViz(BaseViz):
         elif sort_by:
             sort_by_label = utils.get_metric_name(sort_by)
             if sort_by_label not in utils.get_metric_names(d["metrics"]):
-                d["metrics"] += [sort_by]
+                d["metrics"] += [sort_by]l'
             d["orderby"] = [(sort_by, not fd.get("order_desc", True))]
 
         # Add all percent metrics that are not already in the list
@@ -743,6 +743,7 @@ class PivotTableViz(BaseViz):
         if self.form_data.get("transpose_pivot"):
             groupby, columns = columns, groupby
         metrics = [utils.get_metric_name(m) for m in self.form_data["metrics"]]
+        pd.options.display.float_format = '{:.0f}'.format
         df = df.pivot_table(
             index=groupby,
             columns=columns,
