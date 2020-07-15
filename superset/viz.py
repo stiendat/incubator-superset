@@ -761,8 +761,8 @@ class PivotTableViz(BaseViz):
             df = df.stack(0).unstack()
         return dict(
             columns=list(df.columns),
-            html=df.to_html(
-                na_rep="null",
+            html=df.fillna('').to_html(
+                na_rep="",
                 classes=(
                     "dataframe table table-striped table-bordered "
                     "table-condensed table-hover"

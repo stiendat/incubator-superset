@@ -18,6 +18,8 @@
 """Utility functions used across Superset"""
 
 
+from superset.utils.request_time_from_ntp import RequestTimefromNtp
+import copy
 import sys
 import logging
 import time
@@ -87,7 +89,6 @@ PAGE_RENDER_WAIT = 30
 #     return datetime.fromtimestamp(t)
 
 # Moved to superset.utils.request_time_from_ntp
-from superset.utils.request_time_from_ntp import RequestTimefromNtp
 
 EmailContent = namedtuple("EmailContent", ["body", "data", "images"])
 
@@ -366,6 +367,7 @@ def _get_slice_data(schedule):
 
     return EmailContent(body, data, None)
 
+
 def _get_csv(slice_id):
     cache.clear()
     slice_url = _get_url_path(
@@ -391,9 +393,10 @@ def _get_raw_data(slice_id):
     # TODO: Move to the csv module
     # content = response.read()
     df = pd.read_csv(response, header=0)
-    pv = pd.pivot_table(df, index=['Ngày'], margins_name = "Tổng", aggfunc=np.sum, margins = True)
+    pv = pd.pivot_table(
+        df, index=['Ngày'], margins_name="Tổng", aggfunc=np.sum, margins=True)
     pv = pv.reset_index()
-    
+
     try:
         for row in df.index:
             temp = pv['Ngày'][row].split('-')
@@ -416,7 +419,12 @@ def _get_raw_data(slice_id):
     for row in pv.index:
         content_raw += "<tr>"
         for column in pv:
-            content_raw += """<td>{0}</td>""".format(pv[column][row])
+            try:
+                content_raw += """<td style='white-space: nowrap'>{:0,.0f}</td>""".format(
+                    pv[column][row])
+            except:
+                content_raw += """<td style='white-space: nowrap'>{}</td>""".format(
+                    pv[column][row])
         content_raw += "</tr>"
     content_raw += "</tbody></table>"
 
@@ -456,31 +464,33 @@ def _get_slice_capture_old(slice_id):
     # Generate the email body and attachments
     return screenshot
 
+
 def _get_slice_capture(slice_id):
     count_marker = 0
     count_color = 0
     response = _get_csv(slice_id)
-    mydateparser = lambda x: pd.datetime.strptime(x, "%Y-%m-%d %H:%M:%S+00:00")
-    df = pd.read_csv(response, parse_dates=['__timestamp'], date_parser=mydateparser)
-    # ffff
-    #df['__timestamp'] = pd.to_datetime(df["__timestamp"].dt.strftime('%d-%m-%Y'))
+    def mydateparser(x): return pd.datetime.strptime(
+        x, "%Y-%m-%d %H:%M:%S+00:00")
+    df = pd.read_csv(response, parse_dates=[
+                     '__timestamp'], date_parser=mydateparser)
     df = df.set_index('__timestamp')
     df = df.sort_index()
     date_format = DateFormatter('%d-%m-%Y')
     fig, ax = plt.subplots(figsize=(15, 5))
-    #plt.figure(figsize=(15, 5))
     plt.xticks(rotation=15)
     ax.xaxis.set_major_formatter(date_format)
-    # plt.ylabel("asd")
     for i in df.columns:
         plt.plot(df[i], label=i, color=config['LINE_COLOR_LIST'][count_color])
-        for idx,data in enumerate(df[i]):
-            plt.text(df[i].index[idx], data, data, fontsize=12)
-            try:
-                plt.scatter(df[i].index[idx], data, marker=config['MARKER_LIST'][count_marker], color=config['LINE_COLOR_LIST'][count_color], s=50)
-            except IndexError:
-                raise IndexError('Current pos: \n i in df.cols: {}\n count_marker = {}\n marker = {}\n count_color = {}\n color = {}'.format(str(i), str(count_marker), str(config['MARKER_LIST']), str(count_color), str(config['LINE_COLOR_LIST'])))
-            #plt.scatter(df[i].index[idx], data, marker='o', color='red', s=50)
+        for idx, data in enumerate(df[i]):
+            label = "{:0,.0f}".format(data)
+            plt.annotate(label,  # this is the text
+                         # this is the point to label
+                         (df[i].index[idx], data),
+                         textcoords="offset points",  # how to position the text
+                         xytext=(0, 5),  # distance from text to points (x,y)
+                         ha='center')  # horizontal alignment can be left, right or center
+            plt.scatter(df[i].index[idx], data, marker=config['MARKER_LIST']
+                        [count_marker], color=config['LINE_COLOR_LIST'][count_color], s=50)
         count_marker += 1
         if count_marker == len(config['MARKER_LIST']):
             count_marker = 0
@@ -489,12 +499,67 @@ def _get_slice_capture(slice_id):
             count_color = 0
     plt.legend(loc='best')
     file_name = str(random.getrandbits(64))
-    plt.savefig(config['EMAIL_CHART_PICTURE_CACHE_DIR'] + file_name + 'temp.png')
-    # fp = open(config['EMAIL_CHART_PICTURE_CACHE_DIR'] + 'temp.png', 'rb')
-    # img = fp.read()
-    # fp.close()
-    # os.remove(config['EMAIL_CHART_PICTURE_CACHE_DIR'] + 'temp.png', 'rb')
-    return config['EMAIL_CHART_PICTURE_CACHE_DIR'] + file_name + 'temp.png'
+    plt.savefig(config['EMAIL_CHART_PICTURE_CACHE_DIR'] + file_name + '.png')
+    return config['EMAIL_CHART_PICTURE_CACHE_DIR'] + file_name + '.png'
+
+
+def _get_anomaly_slice_capture(slice_id):
+    count_color = 0
+    response = _get_csv(slice_id)
+    def mydateparser(x): return pd.datetime.strptime(
+        x, "%Y-%m-%d %H:%M:%S+00:00")
+    df = pd.read_csv(response, parse_dates=[
+                     '__timestamp'], date_parser=mydateparser)
+    df = df.set_index('__timestamp')
+    df = df.sort_index()
+    date_format = DateFormatter('%d-%m-%Y')
+
+    newest_data = df.iloc[-1]
+    # check null anomaly
+    if np.isnan(newest_data[df.columns[-1]]):
+        is_anomaly = False
+    else:
+        is_anomaly = True
+
+    Anomaly = namedtuple(
+        'Anomaly', ['predict', 'revenue', 'diff_rev', 'abs_diff_rev', 'ratio'])
+    if is_anomaly:
+        predict = newest_data[df.columns[0]]
+        revenue = newest_data[df.columns[1]]
+        diff_rev = predict - revenue
+        abs_diff = abs(diff_rev)
+        try:
+            ratio = round(((abs_diff / revenue) * 100), 2)
+        except:
+            logger.info('ratio err (line 520): abs_diff = {}, revenue = {}'.format(
+                abs_diff, revenue))
+            ratio = 'NaN'
+        anomaly_result = Anomaly(predict, revenue, diff_rev, abs_diff, ratio)
+    else:
+        anomaly_result = None
+    fig, ax = plt.subplots(figsize=(15, 5))
+    plt.xticks(rotation=15)
+    ax.xaxis.set_major_formatter(date_format)
+    col_list = [x for x in df.columns]
+    col_list.pop()
+    for i in col_list:
+        plt.plot(df[i], label=i, color=config['LINE_COLOR_LIST']
+                 [count_color % len(config['LINE_COLOR_LIST'])])
+        count_color += 1
+        for idx, data in enumerate(df[i]):
+            label = "{:0,.0f}".format(data)
+            plt.annotate(label,  # this is the text
+                        # this is the point to label
+                        (df[df.columns[-1]].index[idx], data),
+                        textcoords="offset points",  # how to position the text
+                        xytext=(0, 5),  # distance from text to points (x,y)
+                        ha='center')  # horizontal alignment can be left, right or center
+    plt.scatter(df[df.columns[-1]].index, df[df.columns[-1]], marker='s', label=df.columns[-1],
+                color=config['LINE_COLOR_LIST'][(count_color - 2) % len(config['LINE_COLOR_LIST'])], s=50)
+    plt.legend(loc='best')
+    file_name = str(random.getrandbits(64))
+    plt.savefig(config['EMAIL_CHART_PICTURE_CACHE_DIR'] + file_name + '.png')
+    return (is_anomaly, anomaly_result, config['EMAIL_CHART_PICTURE_CACHE_DIR'] + file_name + '.png')
 
 
 def deliver_dashboard_v2(schedule):
@@ -504,10 +569,13 @@ def deliver_dashboard_v2(schedule):
 
     # Get current time
     now = RequestTimefromNtp()
+    today = now + timedelta(days=1)
 
     dashboard = schedule.dashboard
     content = """<b>Dear các anh/chị,</b><p></p>
-    Kính gửi anh/chị Báo cáo dịch vụ {} ngày {}<p></p>""".format(dashboard.dashboard_title.split('-')[1], now.strftime('%d/%m/%Y'))
+    Báo cáo {} ngày {}<p></p><p>
+            - Người báo cáo: Tự động<br>
+            - Thời gian gửi báo cáo: {}</p>""".format(dashboard.dashboard_title.split('-')[1], now.strftime('%d/%m/%Y'), today.strftime('%d/%m/%Y'))
 
     # TODO: Fix lay list slice id trong dashboard
     # slice_arr = db.session.query(Dashboard.id).charts()
@@ -520,42 +588,73 @@ def deliver_dashboard_v2(schedule):
         name_arr = _item['__Slice__']['slice_name'].split('-')
         pos = name_arr[0].split('.')[0]
         name_arr = [name_arr[1][1:-1], name_arr[2][1:]]
-        slice_arr.append((_item['__Slice__']['id'], _item['__Slice__']['viz_type'], name_arr, pos))
-    slice_arr.sort(key=lambda x:int(x[3]))
+        slice_arr.append(
+            (_item['__Slice__']['id'], _item['__Slice__']['viz_type'], name_arr, pos))
+    slice_arr.sort(key=lambda x: int(x[3]))
 
     # Dicts chứa thông tin ảnh {cidID : sceenshot}
     images = dict()
     img_file_list = list()
 
-    for slice_id in slice_arr:
+    anomaly = _get_anomaly_slice_capture(slice_arr[0][0])
+
+    if anomaly[0]:
+        anomaly_stats = anomaly[1]
+        if anomaly_stats.diff_rev > 0:
+            anomaly_type = 'tăng'
+        else:
+            anomaly_type = 'giảm'
+        # Vẽ chart anomaly
+        content += '<div>'
+        content += '<p><b>Phát hiện bất thường</b><br>- Dự đoán: {:0,.0f}<br>- Thực tế: {:0,.0f}<br>- Chênh lệch so với dự đoán: {:0,.0f}<br>- Tỉ lệ chênh lệch so với dự đoán: {}%</p>'.format(
+            anomaly_stats.predict, anomaly_stats.revenue, anomaly_stats.abs_diff_rev, str(anomaly_stats.ratio))
+        content += '</br><p><b>{}</b></p></br>'.format(str(slice_arr[0][2][1]))
+        img_path = anomaly[2]
+        img = open(img_path, 'rb')
+        img_file_list.append(img)
+        images['{}'.format(slice_arr[0][0])] = img.read()
+        content += """<img src="cid:{0}" width="100%" height="auto">""".format(
+            slice_arr[0][0])
+        content += '<p><br></p>'
+        content += '</div>'
+    else:
+        content += '<div><p>- Không phát hiện bất thường</p></div>'
+
+    slice_list = copy.deepcopy(slice_arr)
+    del slice_list[0]
+    for slice_id in slice_list:
         # db query not working !!!
         # type_slice = db.session.query(Slice.id).viz_type
         type_slice = slice_id[1]
         # Thêm tiêu đề của chart
-        content += '</br><b>{}</b></br>'.format(str(slice_id[2][1]))
+        content += '<div>'
+        content += '</br><p><b>{}</b></p></br>'.format(str(slice_id[2][1]))
         if type_slice == 'pivot_table':
-
             content += _get_raw_data(slice_id[0])
         else:
             img_path = _get_slice_capture(slice_id[0])
             img = open(img_path, 'rb')
             img_file_list.append(img)
             images['{}'.format(slice_id[0])] = img.read()
-            content += """<img src="cid:{0}" width="100%" height="auto">""".format(slice_id[0])
+            content += """<img src="cid:{0}" width="100%" height="auto">""".format(
+                slice_id[0])
         content += '<p></p>'
+        content += '</div>'
     # Generate the email body and attachments
     content += "Best regards."
     email = EmailContent(content, None, images=images)
     if (config['SHOW_TIME_ON_EMAIL_SUBJECT']):
         subject = __(
             "%(title)s (ngày %(_time)s)",
-            title='Báo cáo dịch vụ {}'.format(dashboard.dashboard_title.split('-')[1]),
+            title='Báo cáo dịch vụ {}'.format(
+                dashboard.dashboard_title.split('-')[1]),
             _time=now.strftime('%d/%m/%Y')
         )
     else:
         subject = __(
             "%(title)s",
-            title='Báo cáo dịch vụ {}'.format(dashboard.dashboard_title.split('-')[1]),
+            title='Báo cáo dịch vụ {}'.format(
+                dashboard.dashboard_title.split('-')[1]),
         )
 
     _deliver_email(schedule, subject, email)
